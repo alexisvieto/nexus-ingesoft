@@ -222,6 +222,7 @@ tr:hover td{background:var(--bg);}
   <div class="tab active" onclick="showPage('catalogo')">Catálogo <span class="badge" id="badge-cat">0</span></div>
   <div class="tab" onclick="showPage('proyecto')">Nuevo Proyecto</div>
   <div class="tab" onclick="showPage('proyectos')">Proyectos <span class="badge" id="badge-proj">0</span></div>
+  <div class="tab" onclick="showPage('categorias')">Categorías</div>
 </nav>
 
 <main>
@@ -315,18 +316,54 @@ tr:hover td{background:var(--bg);}
 
 </main>
 
+<!-- ══════════════════ CATEGORÍAS ══════════════════ -->
+<div class="page" id="page-categorias">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><div class="section-icon">🗂️</div>Categorías de Soluciones</div>
+      <button class="btn btn-primary" onclick="openAddSistema()">+ Nueva Categoría</button>
+    </div>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+      Las categorías aparecen en el menú de Nuevo Proyecto y en el Catálogo.
+      Las predeterminadas no se pueden eliminar.
+    </p>
+    <div id="sistema-manager"></div>
+  </div>
+</div>
+<!-- MODAL: NUEVA CATEGORÍA -->
+<div class="modal-overlay hidden" id="modal-sistema">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-title">Nueva Categoría</div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Nombre de la categoría</label>
+      <input type="text" id="ms-nombre" placeholder="Ej: Domótica, HVAC, Energía Solar...">
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Color identificador</label>
+      <select id="ms-color">
+        <option value="alarma">🔴 Rojo</option>
+        <option value="video">🔵 Azul</option>
+        <option value="cableado">🟢 Verde</option>
+        <option value="acceso">🟡 Naranja</option>
+        <option value="sonido">🟣 Morado</option>
+        <option value="telecom">🩵 Teal</option>
+        <option value="mant">⚫ Gris oscuro</option>
+        <option value="otro" selected>⚪ Gris</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-sistema')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveSistema()">Guardar</button>
+    </div>
+  </div>
+</div>
 <!-- MODAL: AGREGAR/EDITAR CATÁLOGO -->
 <div class="modal-overlay hidden" id="modal-catalog">
   <div class="modal">
     <div class="modal-title" id="modal-cat-title">Agregar Equipo al Catálogo</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr;">
       <div class="form-group" style="grid-column:1/-1"><label>Sistema</label>
-        <select id="mc-sistema">
-          <option>Alarma Contra Incendio</option><option>Video Vigilancia</option>
-          <option>Cableado Estructurado</option><option>Control de Acceso</option>
-          <option>Sonido Ambiental</option><option>Telecomunicaciones</option>
-          <option>Mantenimiento</option><option>Otro</option>
-        </select></div>
+        <select id="mc-sistema"></select></div>
       <div class="form-group" style="grid-column:1/-1"><label>Descripción del Equipo</label><input type="text" id="mc-desc" placeholder="Ej: Detector de Humo Direccionable"></div>
       <div class="form-group" style="grid-column:1/-1"><label>Fabricante / Modelo</label><input type="text" id="mc-fab" placeholder="Ej: System Sensor D4120"></div>
       <div class="form-group"><label>Precio Unitario USD (sin ITBMS)</label><input type="number" id="mc-precio" placeholder="0.00" step="0.01" min="0"></div>
@@ -347,13 +384,7 @@ tr:hover td{background:var(--bg);}
     <div class="modal-title" id="pick-title">Agregar equipos</div>
     <div class="search-row">
       <div class="search-wrap" style="flex:1"><span class="search-icon">🔍</span><input type="text" id="pick-search" placeholder="Buscar..." oninput="renderPickList()"></div>
-      <select id="pick-sistema-filter" onchange="renderPickList()" style="width:180px">
-        <option value="">Todos los sistemas</option>
-        <option>Alarma Contra Incendio</option><option>Video Vigilancia</option>
-        <option>Cableado Estructurado</option><option>Control de Acceso</option>
-        <option>Sonido Ambiental</option><option>Telecomunicaciones</option>
-        <option>Mantenimiento</option><option>Otro</option>
-      </select>
+      <select id="pick-sistema-filter" onchange="renderPickList()" style="width:180px"><option value="">Todos los sistemas</option></select>
     </div>
     <div class="table-wrap" style="max-height:360px;overflow-y:auto">
       <table>
@@ -369,10 +400,14 @@ tr:hover td{background:var(--bg);}
 <div class="toast" id="toast"></div>
 
 <script>
-const SISTEMAS = ['Alarma Contra Incendio','Video Vigilancia','Cableado Estructurado','Control de Acceso','Sonido Ambiental','Telecomunicaciones','Mantenimiento','Otro'];
-const SIS_COLOR = {'Alarma Contra Incendio':'alarma','Video Vigilancia':'video','Cableado Estructurado':'cableado','Control de Acceso':'acceso','Sonido Ambiental':'sonido','Telecomunicaciones':'telecom','Mantenimiento':'mant','Otro':'otro'};
-const SIS_BAR   = {'Alarma Contra Incendio':'#e74c3c','Video Vigilancia':'#2980b9','Cableado Estructurado':'#27ae60','Control de Acceso':'#f39c12','Sonido Ambiental':'#8e44ad','Telecomunicaciones':'#16a085','Mantenimiento':'#7f8c8d','Otro':'#95a5a6'};
-const TAG_CLASS  = {'Alarma Contra Incendio':'tag-alarma','Video Vigilancia':'tag-video','Cableado Estructurado':'tag-cableado','Control de Acceso':'tag-acceso','Sonido Ambiental':'tag-sonido','Telecomunicaciones':'tag-telecom','Mantenimiento':'tag-mant','Otro':'tag-otro'};
+let SISTEMAS = []; // loaded from server
+const COLOR_PALETTE = {alarma:'#e74c3c',video:'#2980b9',cableado:'#27ae60',acceso:'#f39c12',sonido:'#8e44ad',telecom:'#16a085',mant:'#7f8c8d',otro:'#95a5a6'};
+const TAG_PALETTE  = {alarma:'tag-alarma',video:'tag-video',cableado:'tag-cableado',acceso:'tag-acceso',sonido:'tag-sonido',telecom:'tag-telecom',mant:'tag-mant',otro:'tag-otro'};
+function getSisColor(n){const s=SISTEMAS.find(x=>x.nombre===n);return COLOR_PALETTE[(s&&s.color)||'otro']||'#95a5a6';}
+function getSisTag(n){const s=SISTEMAS.find(x=>x.nombre===n);return TAG_PALETTE[(s&&s.color)||'otro']||'tag-otro';}
+const SIS_COLOR=new Proxy({},{get:(_,k)=>getSisTag(k)});
+const SIS_BAR=new Proxy({},{get:(_,k)=>getSisColor(k)});
+const TAG_CLASS=new Proxy({},{get:(_,k)=>getSisTag(k)});
 
 const DEFAULT_CATALOG = [
   {id:uid(),sistema:'Alarma Contra Incendio',desc:'Panel de Control Direccionable 2 lazos',fab:'Notifier NFS2-3030',precio:1850,unidad:'und',notas:''},
@@ -422,23 +457,43 @@ let activeSolutions=[];   // [{sistema, items:[{id,desc,fab,cant,precio,tipo}], 
 let pickTargetSistema=null;
 
 /* STORAGE */
-function save(){localStorage.setItem('nx_catalog',JSON.stringify(catalog));localStorage.setItem('nx_projects',JSON.stringify(savedProjects));}
-function load(){
-  const c=localStorage.getItem('nx_catalog');
-  catalog=c?JSON.parse(c):JSON.parse(JSON.stringify(DEFAULT_CATALOG));
-  const p=localStorage.getItem('nx_projects');
-  savedProjects=p?JSON.parse(p):[];
+/* ─── API ─── */
+const API='';
+async function apiFetch(path,opts){const r=await fetch(API+path,opts);if(!r.ok)throw new Error(await r.text());return r.json();}
+async function loadSistemas(){
+  try{const data=await apiFetch('/api/sistemas');
+    SISTEMAS=data.map(s=>({id:s.id,nombre:s.nombre,color:s.color,esDefault:!!s.es_default}));
+    renderSolButtons();renderSistemaManager();populateSistemaSelects();
+  }catch(e){console.error('Error cargando sistemas:',e);}
 }
+function populateSistemaSelects(){
+  const opts=SISTEMAS.map(s=>`<option value="${s.nombre}">${s.nombre}</option>`).join('');
+  const mc=document.getElementById('mc-sistema');if(mc)mc.innerHTML=opts;
+  const pk=document.getElementById('pick-sistema-filter');
+  if(pk)pk.innerHTML=`<option value="">Todos los sistemas</option>`+opts;
+}
+async function loadCatalog(){
+  try{catalog=await apiFetch('/api/catalog');updateBadges();renderCatalog();}
+  catch(e){console.error('Error cargando catálogo:',e);}
+}
+async function loadProjects(){
+  try{savedProjects=await apiFetch('/api/projects');updateBadges();}
+  catch(e){console.error('Error cargando proyectos:',e);}
+}
+async function loadAll(){await Promise.all([loadSistemas(),loadCatalog(),loadProjects()]);}
+function save(){}
+function load(){}
 
 /* NAV */
 function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
-  const map={catalogo:0,proyecto:1,proyectos:2};
+  const map={catalogo:0,proyecto:1,proyectos:2,categorias:3};
   document.querySelectorAll('.tab')[map[name]].classList.add('active');
   if(name==='catalogo')renderCatalog();
   if(name==='proyectos')renderSavedProjects();
+  if(name==='categorias')renderSistemaManager();
   updateBadges();
 }
 function updateBadges(){
@@ -499,17 +554,16 @@ async function saveCatalogItem(){
       await apiFetch('/api/catalog/'+editCatId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({sistema,desc,fab,precio,unidad,notas})});
       toast('Equipo actualizado ✓');
     } else {
-      const added = await apiFetch('/api/catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sistema,desc,fab,precio,unidad,notas})});
+      await apiFetch('/api/catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sistema,desc,fab,precio,unidad,notas})});
       toast('Equipo agregado al catálogo ✓');
     }
-    await loadCatalog();
-    closeModal('modal-catalog');
+    await loadCatalog(); closeModal('modal-catalog');
   } catch(e){ alert('Error guardando: '+e.message); }
 }
 async function deleteCatalogItem(id){
   if(!confirm('¿Eliminar este equipo del catálogo?'))return;
   try{ await apiFetch('/api/catalog/'+id,{method:'DELETE'}); await loadCatalog(); toast('Eliminado ✓'); }
-  catch(e){ alert('Error eliminando: '+e.message); }
+  catch(e){ alert('Error: '+e.message); }
 }
 
 
@@ -589,6 +643,40 @@ function renderLaborSection(si){
   </div>`;
 }
 
+/* ── SISTEMA MANAGER ── */
+function renderSistemaManager(){
+  const el=document.getElementById('sistema-manager'); if(!el) return;
+  if(!SISTEMAS.length){el.innerHTML='<div class="empty"><p>Cargando...</p></div>';return;}
+  el.innerHTML=`<div class="table-wrap"><table>
+    <thead><tr><th>Categoría</th><th>Tipo</th><th></th></tr></thead>
+    <tbody>${SISTEMAS.map(s=>`<tr>
+      <td><span style="display:inline-flex;align-items:center;gap:8px">
+        <span style="width:12px;height:12px;border-radius:50%;background:${getSisColor(s.nombre)};flex-shrink:0"></span>
+        ${s.nombre}</span></td>
+      <td style="font-size:12px;color:var(--text-muted)">${s.esDefault?'Predeterminada':'Personalizada'}</td>
+      <td>${s.esDefault?'':`<button class="btn btn-danger" onclick="deleteSistema('${s.id}','${s.nombre}')">✕</button>`}</td>
+    </tr>`).join('')}
+    </tbody></table></div>`;
+}
+function openAddSistema(){
+  document.getElementById('ms-nombre').value='';
+  document.getElementById('ms-color').value='otro';
+  openModal('modal-sistema');
+}
+async function saveSistema(){
+  const nombre=document.getElementById('ms-nombre').value.trim();
+  const color=document.getElementById('ms-color').value;
+  if(!nombre){alert('Escribe el nombre.');return;}
+  try{
+    await apiFetch('/api/sistemas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,color})});
+    await loadSistemas(); closeModal('modal-sistema'); toast(`Categoría "${nombre}" creada ✓`);
+  } catch(e){alert('Ya existe esa categoría o hubo un error.');}
+}
+async function deleteSistema(id,nombre){
+  if(!confirm(`¿Eliminar la categoría "${nombre}"?`))return;
+  try{ await apiFetch('/api/sistemas/'+id,{method:'DELETE'}); await loadSistemas(); toast('Categoría eliminada ✓'); }
+  catch(e){alert('Error: '+e.message);}
+}
 /* ── SOLUTIONS ── */
 function renderSolButtons(){
   const active=activeSolutions.map(s=>s.sistema);
@@ -848,7 +936,7 @@ function renderSavedProjects(){
 async function deleteProject(id){
   if(!confirm('¿Eliminar este proyecto?'))return;
   try{ await apiFetch('/api/projects/'+id,{method:'DELETE'}); await loadProjects(); renderSavedProjects(); toast('Proyecto eliminado ✓'); }
-  catch(e){ alert('Error eliminando: '+e.message); }
+  catch(e){ alert('Error: '+e.message); }
 }
 
 function loadProject(id){
@@ -1284,21 +1372,16 @@ async function exportExcel(){
   });
 
   // ── Save & download ──
-  // Save project and auto-add new catalog items via API
   try{
     await apiFetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({nombre,cliente,elaborado,fecha,params:p,
-        solutions:activeSolutions, total:calcTotals().total})});
-
-    const newItems = activeSols.flatMap(sol=>sol.items
-      .filter(i=>i.desc&&i.precio>0)
-      .map(i=>({sistema:sol.sistema,desc:i.desc,fab:i.fab||'',precio:i.precio,unidad:'und'}))
-    );
+        solutions:activeSolutions,total:calcTotals().total})});
+    const newItems=activeSols.flatMap(sol=>sol.items.filter(i=>i.desc&&i.precio>0)
+      .map(i=>({sistema:sol.sistema,desc:i.desc,fab:i.fab||'',precio:i.precio,unidad:'und'})));
     if(newItems.length) await apiFetch('/api/catalog/bulk-add',{method:'POST',
-      headers:{'Content-Type':'application/json'}, body:JSON.stringify(newItems)});
-
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(newItems)});
     await loadAll();
-  } catch(e){ console.error('Error guardando proyecto:', e); }
+  } catch(e){ console.error('Error guardando:',e); }
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
@@ -1316,7 +1399,8 @@ async function exportExcel(){
 document.getElementById('p-fecha').value=new Date().toISOString().slice(0,10);
 renderSolutions();
 ['p-indof','p-indca','p-fin','p-util','p-itbms'].forEach(id=>document.getElementById(id).addEventListener('input',renderSummaryOnly));
-loadAll(); // load from server
+loadAll();
 </script>
 </body>
 </html>
+
