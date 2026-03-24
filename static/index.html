@@ -681,8 +681,9 @@ async function deleteSistema(id,nombre){
 function renderSolButtons(){
   const active=activeSolutions.map(s=>s.sistema);
   document.getElementById('sol-buttons').innerHTML=SISTEMAS.map(s=>{
-    const on=active.includes(s);
-    return`<button class="btn ${on?'btn-primary':'btn-ghost'} btn-sm" onclick="toggleSolution('${s}')">${on?'✓ ':'+  '}${s}</button>`;
+    const nombre=s.nombre||s;
+    const on=active.includes(nombre);
+    return`<button class="btn ${on?'btn-primary':'btn-ghost'} btn-sm" onclick="toggleSolution('${nombre}')">${on?'✓ ':'+  '}${nombre}</button>`;
   }).join('');
 }
 
@@ -1403,4 +1404,3 @@ loadAll();
 </script>
 </body>
 </html>
-
