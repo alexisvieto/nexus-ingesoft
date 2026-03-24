@@ -388,12 +388,15 @@ tr:hover td{background:var(--bg);}
     </div>
     <div class="table-wrap" style="max-height:360px;overflow-y:auto">
       <table>
-        <thead><tr><th>Sistema</th><th>Descripción</th><th>Fabricante</th><th style="text-align:right">Precio USD</th><th></th></tr></thead>
+        <thead><tr><th>Sistema</th><th>Descripción</th><th>Fabricante</th><th style="text-align:right">Precio USD</th><th style="text-align:center;width:70px">Cant.</th><th style="width:90px"></th></tr></thead>
         <tbody id="pick-body"></tbody>
       </table>
     </div>
     <div id="pick-empty" class="empty hidden"><div class="empty-icon">🔍</div><p>No se encontraron equipos.</p></div>
-    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('modal-pick')">Cerrar</button></div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn btn-primary" onclick="openAddCatalogFromPick()">+ Agregar equipo nuevo al catálogo</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-pick')">Cerrar</button>
+    </div>
   </div>
 </div>
 
@@ -463,7 +466,7 @@ async function apiFetch(path,opts){const r=await fetch(API+path,opts);if(!r.ok)t
 async function loadSistemas(){
   try{const data=await apiFetch('/api/sistemas');
     SISTEMAS=data.map(s=>({id:s.id,nombre:s.nombre,color:s.color,esDefault:!!s.es_default}));
-    renderSolButtons();renderSistemaManager();populateSistemaSelects();
+    renderSolButtons();renderSistemaManager();populateSistemaSelects();renderSolutions();
   }catch(e){console.error('Error cargando sistemas:',e);}
 }
 function populateSistemaSelects(){
@@ -539,7 +542,27 @@ function renderCatalog(){
     </tr>`).join('');
 }
 
-function openAddCatalog(){editCatId=null;document.getElementById('modal-cat-title').textContent='Agregar Equipo al Catálogo';['mc-desc','mc-fab','mc-notas'].forEach(id=>document.getElementById(id).value='');document.getElementById('mc-precio').value='';document.getElementById('mc-sistema').value='Alarma Contra Incendio';document.getElementById('mc-unidad').value='und';openModal('modal-catalog');}
+function openAddCatalog(){
+  editCatId=null;
+  document.getElementById('modal-cat-title').textContent='Agregar Equipo al Catálogo';
+  ['mc-desc','mc-fab','mc-notas'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('mc-precio').value='';
+  document.getElementById('mc-unidad').value='und';
+  openModal('modal-catalog');
+}
+
+function openAddCatalogFromPick(){
+  // Pre-fill the sistema with the current solution's sistema if available
+  const targetSi = pickTargetSistema;
+  const preselect = (targetSi!==null && activeSolutions[targetSi]) ? activeSolutions[targetSi].sistema : '';
+  openAddCatalog();
+  if(preselect){
+    const sel = document.getElementById('mc-sistema');
+    if(sel) sel.value = preselect;
+  }
+  // After saving catalog item, reopen pick modal
+  window._returnToPick = true;
+}
 function editCatalogItem(id){const item=catalog.find(i=>i.id===id);if(!item)return;editCatId=id;document.getElementById('modal-cat-title').textContent='Editar Equipo';document.getElementById('mc-sistema').value=item.sistema;document.getElementById('mc-desc').value=item.desc;document.getElementById('mc-fab').value=item.fab;document.getElementById('mc-precio').value=item.precio;document.getElementById('mc-unidad').value=item.unidad;document.getElementById('mc-notas').value=item.notas||'';openModal('modal-catalog');}
 async function saveCatalogItem(){
   const sistema=document.getElementById('mc-sistema').value;
@@ -557,7 +580,13 @@ async function saveCatalogItem(){
       await apiFetch('/api/catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sistema,desc,fab,precio,unidad,notas})});
       toast('Equipo agregado al catálogo ✓');
     }
-    await loadCatalog(); closeModal('modal-catalog');
+    await loadCatalog();
+    closeModal('modal-catalog');
+    if(window._returnToPick){
+      window._returnToPick = false;
+      renderPickList();
+      openModal('modal-pick');
+    }
   } catch(e){ alert('Error guardando: '+e.message); }
 }
 async function deleteCatalogItem(id){
@@ -679,11 +708,19 @@ async function deleteSistema(id,nombre){
 }
 /* ── SOLUTIONS ── */
 function renderSolButtons(){
+  const container = document.getElementById('sol-buttons');
+  if(!container) return;
+  if(!SISTEMAS.length){
+    container.innerHTML='<span style="font-size:12px;color:var(--text-muted)">Cargando categorías...</span>';
+    return;
+  }
   const active=activeSolutions.map(s=>s.sistema);
-  document.getElementById('sol-buttons').innerHTML=SISTEMAS.map(s=>{
+  container.innerHTML=SISTEMAS.map(s=>{
     const nombre=s.nombre||s;
     const on=active.includes(nombre);
-    return`<button class="btn ${on?'btn-primary':'btn-ghost'} btn-sm" onclick="toggleSolution('${nombre}')">${on?'✓ ':'+  '}${nombre}</button>`;
+    const color = getSisColor(nombre);
+    const style = on ? `background:${color};color:#fff;border-color:${color}` : `border-color:${color};color:${color}`;
+    return`<button class="btn btn-sm" style="${style};font-weight:500" onclick="toggleSolution('${nombre}')">${on?'✓ ':'+  '}${nombre}</button>`;
   }).join('');
 }
 
@@ -839,6 +876,8 @@ function renderPickList(){
       <td>${item.desc}</td>
       <td style="color:var(--text-muted);font-size:12px">${item.fab}</td>
       <td class="num">$${Number(item.precio).toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+      <td><input type="number" id="qty-${item.id}" value="1" min="1" step="1"
+        style="width:60px;text-align:center;font-family:'DM Mono',monospace;font-size:13px;padding:4px 6px;border:1px solid var(--border);border-radius:6px"></td>
       <td><button class="btn btn-primary btn-sm" onclick="addItemFromCatalog('${item.id}')">+ Agregar</button></td>
     </tr>`).join('');
 }
@@ -847,19 +886,21 @@ function addItemFromCatalog(id){
   const catItem=catalog.find(i=>i.id===id);
   if(!catItem)return;
 
+  const qtyInput = document.getElementById('qty-'+id);
+  const cant = qtyInput ? (parseInt(qtyInput.value)||1) : 1;
+
   let targetSi=pickTargetSistema;
   if(targetSi===null){
-    // find or create solution for this item's system
     targetSi=activeSolutions.findIndex(s=>s.sistema===catItem.sistema);
     if(targetSi<0){
-      activeSolutions.push({sistema:catItem.sistema,items:[],collapsed:false});
+      activeSolutions.push({sistema:catItem.sistema,items:[],labor:[],collapsed:false});
       targetSi=activeSolutions.length-1;
     }
   }
-  activeSolutions[targetSi].items.push({id:uid(),desc:catItem.desc,fab:catItem.fab,cant:1,precio:catItem.precio,tipo:'Material'});
+  activeSolutions[targetSi].items.push({id:uid(),desc:catItem.desc,fab:catItem.fab,cant:cant,precio:catItem.precio,tipo:'Material'});
   activeSolutions[targetSi].collapsed=false;
   renderSolutions();
-  toast(`"${catItem.desc}" agregado ✓`);
+  toast(`${cant}x "${catItem.desc}" agregado ✓`);
 }
 
 /* PARAMS */
@@ -1404,6 +1445,3 @@ loadAll();
 </script>
 </body>
 </html>
-
-
-
