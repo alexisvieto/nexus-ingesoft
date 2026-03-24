@@ -28,6 +28,13 @@ def init_db():
             notas TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS sistemas (
+            id TEXT PRIMARY KEY,
+            nombre TEXT NOT NULL UNIQUE,
+            color TEXT DEFAULT 'otro',
+            es_default INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
         CREATE TABLE IF NOT EXISTS projects (
             id TEXT PRIMARY KEY,
             nombre TEXT NOT NULL,
@@ -90,6 +97,19 @@ def init_db():
                 "INSERT INTO catalog (id,sistema,desc,fab,precio,unidad,notas) VALUES (?,?,?,?,?,?,'')",
                 (str(uuid.uuid4()), sistema, desc, fab, precio, unidad)
             )
+        conn.commit()
+    # Seed default sistemas if empty
+    sis_count = conn.execute("SELECT COUNT(*) FROM sistemas").fetchone()[0]
+    if sis_count == 0:
+        defaults = [
+            ('Alarma Contra Incendio','alarma'),('Video Vigilancia','video'),
+            ('Cableado Estructurado','cableado'),('Control de Acceso','acceso'),
+            ('Sonido Ambiental','sonido'),('Telecomunicaciones','telecom'),
+            ('Mantenimiento','mant'),
+        ]
+        for nombre, color in defaults:
+            conn.execute("INSERT INTO sistemas (id,nombre,color,es_default) VALUES (?,?,?,1)",
+                        (str(uuid.uuid4()), nombre, color))
         conn.commit()
     conn.close()
 
@@ -222,9 +242,50 @@ def bulk_add(items: List[CatalogItem]):
     conn.commit(); conn.close()
     return {"added": added}
 
+# ── SISTEMAS endpoints ───────────────────────────────────────────────────────
+@app.get("/api/sistemas")
+def get_sistemas():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM sistemas ORDER BY es_default DESC, nombre").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+class SistemaItem(BaseModel):
+    nombre: str
+    color: Optional[str] = "otro"
+
+@app.post("/api/sistemas")
+def add_sistema(item: SistemaItem):
+    conn = get_db()
+    existing = conn.execute("SELECT id FROM sistemas WHERE lower(nombre)=lower(?)", (item.nombre,)).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ya existe esa categoría")
+    sid = str(uuid.uuid4())
+    conn.execute("INSERT INTO sistemas (id,nombre,color,es_default) VALUES (?,?,?,0)",
+                (sid, item.nombre.strip(), item.color))
+    conn.commit()
+    conn.close()
+    return {"id": sid, "nombre": item.nombre, "color": item.color}
+
+@app.delete("/api/sistemas/{sid}")
+def delete_sistema(sid: str):
+    conn = get_db()
+    es_default = conn.execute("SELECT es_default FROM sistemas WHERE id=?", (sid,)).fetchone()
+    if es_default and es_default['es_default']:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No se pueden eliminar las categorías predeterminadas")
+    conn.execute("DELETE FROM sistemas WHERE id=?", (sid,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
 # ── Serve frontend ────────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 def root():
     return FileResponse("static/index.html")
+
+
+
