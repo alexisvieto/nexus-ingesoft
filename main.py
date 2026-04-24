@@ -1,9 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Any
-import sqlite3, json, os, uuid
+import sqlite3, json, os, uuid, hashlib, secrets
 from datetime import datetime
 
 app = FastAPI()
@@ -26,6 +26,19 @@ def init_db():
             precio REAL DEFAULT 0,
             unidad TEXT DEFAULT 'und',
             notas TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            nombre TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS sistemas (
@@ -111,6 +124,16 @@ def init_db():
             conn.execute("INSERT INTO sistemas (id,nombre,color,es_default) VALUES (?,?,?,1)",
                         (str(uuid.uuid4()), nombre, color))
         conn.commit()
+    # Seed default admin user if no users exist
+    user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if user_count == 0:
+        admin_id = str(uuid.uuid4())
+        pw_hash = hashlib.sha256("nexus2025".encode()).hexdigest()
+        conn.execute(
+            "INSERT INTO users (id,email,nombre,password_hash,is_admin) VALUES (?,?,?,?,1)",
+            (admin_id, "admin@ingesoft.com", "Administrador", pw_hash)
+        )
+        conn.commit()
     conn.close()
 
 init_db()
@@ -137,7 +160,7 @@ class Project(BaseModel):
 
 # ── CATALOG endpoints ─────────────────────────────────────────────────────────
 @app.get("/api/catalog")
-def get_catalog(sistema: Optional[str] = None, q: Optional[str] = None):
+def get_catalog(sistema: Optional[str] = None, q: Optional[str] = None, user=Depends(get_current_user)):
     conn = get_db()
     sql = "SELECT * FROM catalog WHERE 1=1"
     args = []
@@ -151,7 +174,7 @@ def get_catalog(sistema: Optional[str] = None, q: Optional[str] = None):
     return [dict(r) for r in rows]
 
 @app.post("/api/catalog")
-def add_catalog(item: CatalogItem):
+def add_catalog(item: CatalogItem, user=Depends(get_current_user)):
     conn = get_db()
     item.id = str(uuid.uuid4())
     conn.execute(
@@ -162,7 +185,7 @@ def add_catalog(item: CatalogItem):
     return item
 
 @app.put("/api/catalog/{item_id}")
-def update_catalog(item_id: str, item: CatalogItem):
+def update_catalog(item_id: str, item: CatalogItem, user=Depends(get_current_user)):
     conn = get_db()
     conn.execute(
         "UPDATE catalog SET sistema=?,desc=?,fab=?,precio=?,unidad=?,notas=? WHERE id=?",
@@ -172,7 +195,7 @@ def update_catalog(item_id: str, item: CatalogItem):
     return {"ok": True}
 
 @app.delete("/api/catalog/{item_id}")
-def delete_catalog(item_id: str):
+def delete_catalog(item_id: str, user=Depends(get_current_user)):
     conn = get_db()
     conn.execute("DELETE FROM catalog WHERE id=?", (item_id,))
     conn.commit(); conn.close()
@@ -180,7 +203,7 @@ def delete_catalog(item_id: str):
 
 # ── PROJECTS endpoints ────────────────────────────────────────────────────────
 @app.get("/api/projects")
-def get_projects():
+def get_projects(user=Depends(get_current_user)):
     conn = get_db()
     rows = conn.execute("SELECT * FROM projects ORDER BY updated_at DESC").fetchall()
     conn.close()
@@ -193,7 +216,7 @@ def get_projects():
     return result
 
 @app.post("/api/projects")
-def save_project(proj: Project):
+def save_project(proj: Project, user=Depends(get_current_user)):
     conn = get_db()
     now = datetime.utcnow().isoformat()
     existing = conn.execute(
@@ -216,7 +239,7 @@ def save_project(proj: Project):
     return {"id": pid}
 
 @app.delete("/api/projects/{proj_id}")
-def delete_project(proj_id: str):
+def delete_project(proj_id: str, user=Depends(get_current_user)):
     conn = get_db()
     conn.execute("DELETE FROM projects WHERE id=?", (proj_id,))
     conn.commit(); conn.close()
@@ -224,7 +247,7 @@ def delete_project(proj_id: str):
 
 # ── Auto-add new catalog items from project ───────────────────────────────────
 @app.post("/api/catalog/bulk-add")
-def bulk_add(items: List[CatalogItem]):
+def bulk_add(items: List[CatalogItem], user=Depends(get_current_user)):
     conn = get_db()
     added = 0
     for item in items:
@@ -242,9 +265,105 @@ def bulk_add(items: List[CatalogItem]):
     conn.commit(); conn.close()
     return {"added": added}
 
+
+# ── AUTH helpers ─────────────────────────────────────────────────────────────
+def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
+
+def get_current_user(request: Request):
+    token = request.cookies.get("nx_session")
+    if not token:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    conn = get_db()
+    row = conn.execute(
+        "SELECT u.* FROM sessions s JOIN users u ON s.user_id=u.id WHERE s.token=?",
+        (token,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=401, detail="Sesión inválida")
+    return dict(row)
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class UserCreate(BaseModel):
+    email: str
+    nombre: str
+    password: str
+    is_admin: Optional[int] = 0
+
+# ── AUTH endpoints ────────────────────────────────────────────────────────────
+@app.post("/api/auth/login")
+def login(data: LoginRequest, response: Response):
+    conn = get_db()
+    user = conn.execute(
+        "SELECT * FROM users WHERE email=? AND password_hash=?",
+        (data.email.strip().lower(), hash_pw(data.password))
+    ).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Correo o contraseña incorrectos")
+    token = secrets.token_urlsafe(32)
+    conn.execute("INSERT INTO sessions (token,user_id) VALUES (?,?)", (token, user['id']))
+    conn.commit(); conn.close()
+    response.set_cookie("nx_session", token, httponly=True, samesite="lax", max_age=86400*30)
+    return {"ok": True, "nombre": user['nombre'], "email": user['email'], "is_admin": user['is_admin']}
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response):
+    token = request.cookies.get("nx_session")
+    if token:
+        conn = get_db()
+        conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+        conn.commit(); conn.close()
+    response.delete_cookie("nx_session")
+    return {"ok": True}
+
+@app.get("/api/auth/me")
+def me(user=Depends(get_current_user)):
+    return {"nombre": user['nombre'], "email": user['email'], "is_admin": user['is_admin']}
+
+@app.get("/api/users")
+def get_users(user=Depends(get_current_user)):
+    conn = get_db()
+    rows = conn.execute("SELECT id,email,nombre,is_admin,created_at FROM users ORDER BY created_at").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/api/users")
+def create_user(data: UserCreate, user=Depends(get_current_user)):
+    conn = get_db()
+    existing = conn.execute("SELECT id FROM users WHERE lower(email)=lower(?)", (data.email,)).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ya existe un usuario con ese correo")
+    uid = str(uuid.uuid4())
+    conn.execute(
+        "INSERT INTO users (id,email,nombre,password_hash,is_admin) VALUES (?,?,?,?,?)",
+        (uid, data.email.strip().lower(), data.nombre, hash_pw(data.password), data.is_admin)
+    )
+    conn.commit(); conn.close()
+    return {"ok": True, "id": uid}
+
+@app.delete("/api/users/{uid}")
+def delete_user(uid: str, user=Depends(get_current_user)):
+    conn = get_db()
+    conn.execute("DELETE FROM users WHERE id=?", (uid,))
+    conn.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@app.put("/api/users/{uid}/password")
+def change_password(uid: str, data: dict, user=Depends(get_current_user)):
+    conn = get_db()
+    conn.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_pw(data['password']), uid))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
 # ── SISTEMAS endpoints ───────────────────────────────────────────────────────
 @app.get("/api/sistemas")
-def get_sistemas():
+def get_sistemas(user=Depends(get_current_user)):
     conn = get_db()
     rows = conn.execute("SELECT * FROM sistemas ORDER BY es_default DESC, nombre").fetchall()
     conn.close()
@@ -255,7 +374,7 @@ class SistemaItem(BaseModel):
     color: Optional[str] = "otro"
 
 @app.post("/api/sistemas")
-def add_sistema(item: SistemaItem):
+def add_sistema(item: SistemaItem, user=Depends(get_current_user)):
     conn = get_db()
     existing = conn.execute("SELECT id FROM sistemas WHERE lower(nombre)=lower(?)", (item.nombre,)).fetchone()
     if existing:
@@ -269,7 +388,7 @@ def add_sistema(item: SistemaItem):
     return {"id": sid, "nombre": item.nombre, "color": item.color}
 
 @app.delete("/api/sistemas/{sid}")
-def delete_sistema(sid: str):
+def delete_sistema(sid: str, user=Depends(get_current_user)):
     conn = get_db()
     es_default = conn.execute("SELECT es_default FROM sistemas WHERE id=?", (sid,)).fetchone()
     if es_default and es_default['es_default']:
@@ -286,6 +405,5 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 def root():
     return FileResponse("static/index.html")
-
 
 
